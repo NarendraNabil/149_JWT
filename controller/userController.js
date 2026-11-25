@@ -3,96 +3,87 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const User = db.User;
-const SALT_ROUNDS = 10;
 
-function isNonEmptyString(value) {
-    return typeof value === 'string' && value.trim().length > 0;
-}
-
-function sendInternalServerError(res, error, action) {
-    console.error(`Error ${action}:`, error);
-    return res.status(500).json({ message: 'Internal Server Error' });
-}
-
-async function register(req, res) {
-    const { email, password } = req.body || {};
-
-    if (!isNonEmptyString(email) || typeof password !== 'string' || password.length === 0) {
-        return res.status(400).json({ message: 'Email dan password wajib diisi' });
-    }
-
-    const normalizedEmail = email.trim();
-
+async function registor(req, res) {
     try {
-        const existingUser = await User.findOne({ where: { email: normalizedEmail } });
-        if (existingUser) {
-            return res.status(400).json({ message: 'Email sudah terdaftar' });
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ message: "Email dan password wajib diisi" });
         }
 
-        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-        const user = await User.create({
-            email: normalizedEmail,
-            password: hashedPassword
-        });
+        const existingUser = await User.findOne({ where: { email } });
+        if (existingUser) {
+            return res.status(400).json({ message: "Email sudah terdaftar" });
+        }
 
-        return res.status(201).json({
-            message: 'Registrasi berhasil',
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await User.create({ email, password: hashedPassword });
+
+        return res.status(201).json({ message: "Registrasi berhasil",
             data: {
                 id: user.id,
                 email: user.email
             }
         });
-    } catch (error) {
-        if (error.name === 'SequelizeUniqueConstraintError') {
-            return res.status(400).json({ message: 'Email sudah terdaftar' });
-        }
 
-        return sendInternalServerError(res, error, 'registering user');
+    } catch (error) {
+        return res.status(500).json({ 
+            message: error.message });
     }
 }
 
 async function login(req, res) {
-    const { email, password } = req.body || {};
-
-    if (!isNonEmptyString(email) || typeof password !== 'string' || password.length === 0) {
-        return res.status(400).json({ message: 'Email dan password wajib diisi' });
-    }
-
     try {
-        const user = await User.findOne({
-            where: { email: email.trim() }
-        });
+        const { email, password } = req.body; 
 
-        if (!user || !(await bcrypt.compare(password, user.password))) {
-            return res.status(401).json({ message: 'Email atau password salah.' });
+        if (!email || !password) {
+            return res.status(400).json({ message: "Email dan password wajib diisi" 
+
+            });
         }
 
-        const jwtSecret = process.env.JWT_SECRET;
-        const jwtExpires = process.env.JWT_EXPIRES;
-        if (!jwtSecret || !jwtExpires) {
-            console.error('JWT_SECRET and JWT_EXPIRES must be configured.');
-            return res.status(500).json({ message: 'Internal Server Error' });
+        const user = await User.findOne({
+            where: { email }
+        });
+
+        if (!user) {
+            return res.status(401).json({
+                message: "Email atau password salah."
+            });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({
+                message: "Email atau password salah."
+            });
         }
 
         const token = jwt.sign(
-            {
+            { 
                 id: user.id,
                 email: user.email
-            },
-            jwtSecret,
-            { expiresIn: jwtExpires }
+            }, 
+            process.env.JWT_SECRET, 
+            { 
+                expiresIn: process.env.JWT_EXPIRES 
+            }
         );
 
         return res.status(200).json({
-            message: 'Login berhasil',
-            token
+            message: "Login berhasil",
+            token: token
         });
+
     } catch (error) {
-        return sendInternalServerError(res, error, 'logging in user');
+        return res.status(500).json({ 
+            message: error.message 
+        });
     }
 }
 
 module.exports = {
-    register,
+    registor,
     login
 };
